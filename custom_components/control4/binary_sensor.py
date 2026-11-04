@@ -153,7 +153,7 @@ async def async_setup_entry(
             )
         )
 
-    async_add_entities(entity_list, True)
+    async_add_entities(entity_list, False)
     await async_setup_alarm_zones(hass, entry, async_add_entities)
 
 

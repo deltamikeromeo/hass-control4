@@ -147,7 +147,7 @@ async def async_setup_entry(
             )
         )
 
-    async_add_entities(entity_list, True)
+    async_add_entities(entity_list, False)
 
 
 class Control4Light(Control4Entity, LightEntity):  # type: ignore[misc]
