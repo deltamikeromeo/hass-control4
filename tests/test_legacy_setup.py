@@ -14,18 +14,20 @@ source = (
     .joinpath("custom_components/control4/__init__.py")
     .read_text(encoding="utf-8")
 )
-# Compile the real setup function without importing the HA runtime.
+# Compile the real setup function and helper functions without importing the HA runtime.
 tree = ast.parse(source)
-setup = next(
+funcs = [
     n
     for n in tree.body
-    if isinstance(n, ast.AsyncFunctionDef) and n.name == "async_setup_entry"
-)
-setup.returns = None
-for arg in setup.args.args:
-    arg.annotation = None
+    if isinstance(n, ast.AsyncFunctionDef)
+    and n.name in ("async_setup_entry", "_async_get_active_platforms")
+]
+for f in funcs:
+    f.returns = None
+    for arg in f.args.args:
+        arg.annotation = None
 code = compile(
-    ast.fix_missing_locations(ast.Module(body=[setup], type_ignores=[])),
+    ast.fix_missing_locations(ast.Module(body=funcs, type_ignores=[])),
     "patched_setup",
     "exec",
 )
@@ -71,16 +73,26 @@ async def run_case(response=None, failure=None):
         "sensor",
     ]
     logger = Mock()
-    env = {
-        n.id: n.id
-        for n in ast.walk(setup)
-        if isinstance(n, ast.Name) and n.id.startswith(("CONF_", "DEFAULT_"))
-    }
+    env = {}
+    for f in funcs:
+        for n in ast.walk(f):
+            if isinstance(n, ast.Name) and n.id.startswith(("CONF_", "DEFAULT_")):
+                env[n.id] = n.id
     env.update(
         DOMAIN="control4",
         refresh_tokens=AsyncMock(),
         update_listener=Mock(),
         PLATFORMS=platforms,
+        CATEGORY_TO_PLATFORMS={
+            "lights": ["light", "fan"],
+            "security": ["alarm_control_panel"],
+            "sensors": ["binary_sensor"],
+            "locks": ["lock"],
+            "comfort": ["climate"],
+            "audio_video": ["media_player"],
+            "motorization": ["cover"],
+            "blinds": ["cover"],
+        },
         ExpatError=ExpatError,
         _LOGGER=logger,
         asyncio=asyncio,

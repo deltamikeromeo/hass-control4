@@ -82,6 +82,59 @@ PLATFORMS = [
     Platform.COVER,
 ]
 
+CATEGORY_TO_PLATFORMS = {
+    "lights": [Platform.LIGHT, Platform.FAN],
+    "security": [Platform.ALARM_CONTROL_PANEL],
+    "sensors": [Platform.BINARY_SENSOR],
+    "locks": [Platform.LOCK],
+    "comfort": [Platform.CLIMATE],
+    "audio_video": [Platform.MEDIA_PLAYER],
+    "motorization": [Platform.COVER],
+    "blinds": [Platform.COVER],
+}
+
+
+async def _async_get_active_platforms(director) -> list[Platform]:
+    """Discover available platforms based on controller categories."""
+    try:
+        categories = None
+        if hasattr(director, "get_categories"):
+            categories = await director.get_categories()
+        elif hasattr(director, "getCategories"):
+            categories = await director.getCategories()
+        elif hasattr(director, "send_get_request"):
+            resp = await director.send_get_request("/api/v1/categories")
+            if isinstance(resp, str):
+                import json
+                categories = json.loads(resp)
+            elif isinstance(resp, list):
+                categories = resp
+        elif hasattr(director, "sendGetRequest"):
+            resp = await director.sendGetRequest("/api/v1/categories")
+            if isinstance(resp, str):
+                import json
+                categories = json.loads(resp)
+            elif isinstance(resp, list):
+                categories = resp
+
+        if categories and isinstance(categories, (list, set)):
+            cat_set = set(categories)
+            platforms = set()
+            for cat, plats in CATEGORY_TO_PLATFORMS.items():
+                if cat in cat_set:
+                    platforms.update(plats)
+            # Sensors and switches attach to lights, sensors, or audio_video
+            if any(c in cat_set for c in ("lights", "sensors", "audio_video")):
+                platforms.add(Platform.SENSOR)
+                platforms.add(Platform.SWITCH)
+            _LOGGER.debug("Discovered Control4 categories %s, enabling platforms: %s", cat_set, platforms)
+            return [p for p in PLATFORMS if p in platforms]
+    except Exception as exc:
+        _LOGGER.debug("Could not query controller categories (%s), falling back to all platforms", exc)
+
+    return list(PLATFORMS)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Control4 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -173,14 +226,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry_data[CONF_CONFIG_LISTENER] = entry.add_update_listener(update_listener)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    platforms_to_load = await _async_get_active_platforms(entry_data[CONF_DIRECTOR])
+    entry_data["loaded_platforms"] = platforms_to_load
+    await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    platforms_to_unload = entry_data.get("loaded_platforms", PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms_to_unload)
 
     entry_data = hass.data[DOMAIN][entry.entry_id]
     _LOGGER.debug("Disconnecting C4Websocket for config entry unload")

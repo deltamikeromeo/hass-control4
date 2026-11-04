@@ -154,7 +154,7 @@ async def async_setup_entry(
             )
         )
 
-    async_add_entities(entity_list, True)
+    async_add_entities(entity_list, False)
 
 
 class Control4AlarmControlPanel(Control4Entity, AlarmControlPanelEntity):  # type: ignore[misc]
